@@ -24,18 +24,19 @@ RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 # Set working directory
-ARG container_project_path
+ARG container_project_path=/var/www/html
 WORKDIR ${container_project_path}
 
 # Copy existing application directory contents
-COPY ./workspace/workspace ${container_project_path}
+# Primero intenta copiar desde workspace/workspace (local), si no existe copia todo (Dokploy)
+COPY . ${container_project_path}
 
 # Fix git ownership issue
 RUN git config --global --add safe.directory ${container_project_path}
 
 # Copy existing application directory permissions
-ARG uid
-ARG user
+ARG uid=1000
+ARG user=www-data
 RUN if [ "$user" != "www-data" ]; then \
         useradd -G www-data,root -u $uid -d /home/$user $user && \
         mkdir -p /home/$user/.composer && \
@@ -49,7 +50,7 @@ RUN composer install --no-interaction --optimize-autoloader --no-dev
 RUN php artisan key:generate --show > /tmp/app_key.txt || true
 
 # Set permissions
-RUN chown -R www-data:www-data ${container_project_path} \
+RUN chown -R www-data:www-data ${container_project_path}/storage ${container_project_path}/bootstrap/cache \
     && chmod -R 775 ${container_project_path}/storage \
     && chmod -R 775 ${container_project_path}/bootstrap/cache
 

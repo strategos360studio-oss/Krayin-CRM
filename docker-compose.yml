@@ -1,52 +1,85 @@
-version: "3.9"
+version: '3.8'
 
 services:
-  app:
+  krayin-app:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: ./Dockerfile
+      args:
+        container_project_path: /var/www/html/
+        uid: 1000
+        user: ${USER:-www-data}
     image: krayin-php-apache
-    ports:
-      - "${APP_PORT:-8080}:80"
-    environment:
-      APP_URL: ${APP_URL}
-      DB_HOST: krayin-mysql
-      DB_DATABASE: ${DB_NAME}
-      DB_USERNAME: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
+    container_name: krayin-app
+    restart: always
     depends_on:
       krayin-mysql:
         condition: service_healthy
+    ports:
+      - "8081:80"
+    environment:
+      - DB_CONNECTION=mysql
+      - DB_HOST=krayin-mysql
+      - DB_PORT=3306
+      - DB_DATABASE=${MYSQL_DATABASE}
+      - DB_USERNAME=${MYSQL_USER}
+      - DB_PASSWORD=${MYSQL_PASSWORD}
+      - APP_ENV=${APP_ENV:-production}
+      - APP_DEBUG=${APP_DEBUG:-false}
+      - APP_URL=${APP_URL}
+      - SANCTUM_STATEFUL_DOMAINS=${SANCTUM_STATEFUL_DOMAINS}
+      - SESSION_DOMAIN=${SESSION_DOMAIN}
     volumes:
-      - ./workspace:/var/www/html
+      - krayin_data:/var/www/html/storage
+      - krayin_public:/var/www/html/public
+    networks:
+      - krayin_network
 
   krayin-mysql:
     image: mysql:8.0
-    command: --default-authentication-plugin=mysql_native_password
+    container_name: krayin-mysql
     restart: always
+    command: --default-authentication-plugin=mysql_native_password
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
-      MYSQL_DATABASE: ${DB_NAME}
-      MYSQL_USER: ${DB_USER}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
-    ports:
-      - "${DB_PORT:-3306}:3306"
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 5s
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
       retries: 10
     volumes:
-      - ./mysql-data:/var/lib/mysql
+      - mysql_data:/var/lib/mysql
+    networks:
+      - krayin_network
 
   krayin-phpmyadmin:
     image: phpmyadmin:latest
+    container_name: krayin-phpmyadmin
     restart: always
+    depends_on:
+      - krayin-mysql
+    ports:
+      - "8080:80"
     environment:
       PMA_HOST: krayin-mysql
-      PMA_USER: ${DB_USER}
-      PMA_PASSWORD: ${DB_PASSWORD}
-    ports:
-      - "${PMA_PORT:-8081}:80"
+      PMA_USER: ${MYSQL_USER}
+      PMA_PASSWORD: ${MYSQL_PASSWORD}
+      PMA_ARBITRARY: 1
+    networks:
+      - krayin_network
 
 volumes:
-  mysql-data:
+  mysql_data:
+    driver: local
+  krayin_data:
+    driver: local
+  krayin_public:
+    driver: local
+
+networks:
+  krayin_network:
+    driver: bridge

@@ -45,6 +45,9 @@ RUN if [ "$user" != "www-data" ]; then \
 # Install dependencies
 RUN composer install --no-interaction --optimize-autoloader --no-dev
 
+# Generate application key if not exists
+RUN php artisan key:generate --show > /tmp/app_key.txt || true
+
 # Set permissions
 RUN chown -R www-data:www-data ${container_project_path} \
     && chmod -R 775 ${container_project_path}/storage \

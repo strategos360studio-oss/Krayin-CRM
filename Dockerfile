@@ -1,41 +1,62 @@
-# Usa una imagen base de PHP con Apache
-FROM php:7.4-apache
+FROM php:8.2-apache
 
-# Argumentos definidos en docker-compose.yml
-ARG container_project_path
-ARG uid
-ARG user
-
-# 1. Instalar dependencias del sistema y extensiones de PHP necesarias para Laravel/Krayin
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     git \
-    libzip-dev \
-    unzip \
+    curl \
     libpng-dev \
-    libxml2-dev \
     libonig-dev \
-    supervisor \
-    && rm -rf /var/lib/apt/lists/*
+    libxml2-dev \
+    zip \
+    unzip \
+    libzip-dev \
+    libicu-dev \
+    libfreetype6-dev \
+    libjpeg62-turbo-dev \
+    libwebp-dev \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
+    && docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd intl zip calendar
 
-# Instalar extensiones de PHP
-RUN docker-php-ext-install pdo_mysql zip gd mbstring exif pcntl
+# Clear cache
+RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# 2. Instalar Composer (gestor de dependencias de PHP)
-COPY --from=composer:latest /usr/bin/composer /usr/local/bin/composer
+# Get latest Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# 3. Configurar el servidor web (Apache)
-RUN a2enmod rewrite
-
-# 4. Crear un usuario no root para seguridad (usando el UID y el usuario del compose)
-RUN useradd -G www-data,root -u $uid -d /home/$user $user
-RUN mkdir -p /home/$user/.composer && \
-    chown -R $user:$user /home/$user
-
-# Establecer la carpeta de trabajo
+# Set working directory
+ARG container_project_path
 WORKDIR ${container_project_path}
 
-# 5. Configurar el acceso para el usuario del sistema
-USER $user
+# Copy existing application directory contents
+COPY ./workspace/workspace ${container_project_path}
 
-# Comando por defecto para iniciar Apache
+# Fix git ownership issue
+RUN git config --global --add safe.directory ${container_project_path}
+
+# Copy existing application directory permissions
+ARG uid
+ARG user
+RUN if [ "$user" != "www-data" ]; then \
+        useradd -G www-data,root -u $uid -d /home/$user $user && \
+        mkdir -p /home/$user/.composer && \
+        chown -R $user:$user /home/$user; \
+    fi
+
+# Install dependencies
+RUN composer install --no-interaction --optimize-autoloader --no-dev
+
+# Set permissions
+RUN chown -R www-data:www-data ${container_project_path} \
+    && chmod -R 775 ${container_project_path}/storage \
+    && chmod -R 775 ${container_project_path}/bootstrap/cache
+
+# Enable Apache mod_rewrite
+RUN a2enmod rewrite
+
+# Update Apache configuration to point to public directory
+RUN sed -i 's!/var/www/html!/var/www/html/public!g' /etc/apache2/sites-available/000-default.conf
+
+# Expose port 80
+EXPOSE 80
+
 CMD ["apache2-foreground"]
